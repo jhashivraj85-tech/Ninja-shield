@@ -1,0 +1,246 @@
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinite Ninja Game</title>
+<style>
+body {
+  margin: 0;
+  font-family: sans-serif;
+  overflow: hidden;
+  background: #87ceeb;
+}
+
+/* Menu */
+#menu, #game {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+#menu {
+  background: #333;
+  flex-direction: column;
+  color: white;
+  font-size: 32px;
+}
+#playBtn {
+  margin-top: 20px;
+  padding: 20px 40px;
+  background: green;
+  border: none;
+  color: white;
+  font-size: 24px;
+  border-radius: 10px;
+}
+
+/* Game */
+#game {
+  display: none;
+  overflow: hidden;
+}
+#background {
+  position: absolute;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(to right, #87ceeb 0%, #87ceeb 50%, #228B22 50%, #228B22 100%);
+  left: 0; top: 0;
+  z-index: -1;
+}
+
+#ninja {
+  position: absolute;
+  bottom: 50px;
+  left: 50px;
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  background: black;
+}
+
+.spike, .enemy {
+  position: absolute;
+  bottom: 50px;
+}
+.spike { width:30px; height:30px; background:red; clip-path: polygon(50% 0%,0% 100%,100% 100%);}
+.enemy { width:40px; height:40px; background:purple; border-radius:50%; }
+
+#score { position: absolute; top: 20px; left: 20px; font-size:24px; color:white; }
+#highScore { position: absolute; top: 20px; right: 20px; font-size:24px; color:white; }
+
+/* Buttons - fixed bottom */
+.button {
+  width: 80px;
+  height: 80px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 28px;
+  text-align: center;
+  line-height: 80px;
+  border-radius: 15px;
+  user-select: none;
+  position: fixed;
+  z-index: 10;
+}
+
+/* Left movement buttons */
+#backward { left: 20px; bottom: 120px; }
+#forward { left: 120px; bottom: 120px; }
+
+/* Right action buttons */
+#jump { right: 120px; bottom: 120px; }
+#ninjaStar { right: 20px; bottom: 120px; }
+#ability { right: 70px; bottom: 220px; }
+</style>
+</head>
+<body>
+
+<!-- Menu -->
+<div id="menu">
+  Infinite Ninja
+  <button id="playBtn">Play</button>
+</div>
+
+<!-- Game -->
+<div id="game">
+  <div id="background"></div>
+  <div id="ninja"></div>
+  
+  <!-- Buttons -->
+  <div class="button" id="backward">⬅️</div>
+  <div class="button" id="forward">➡️</div>
+  <div class="button" id="jump">⬆️</div>
+  <div class="button" id="ninjaStar">⭐</div>
+  <div class="button" id="ability">💥</div>
+
+  <div id="score">Points: 0</div>
+  <div id="highScore">High: 0</div>
+</div>
+
+<script>
+const menu = document.getElementById('menu');
+const playBtn = document.getElementById('playBtn');
+const game = document.getElementById('game');
+const ninja = document.getElementById('ninja');
+const background = document.getElementById('background');
+const scoreDisplay = document.getElementById('score');
+const highScoreDisplay = document.getElementById('highScore');
+
+let ninjaX=50, ninjaY=0, velocity=0, jumping=false;
+let speedX=0, points=0, invincible=false, difficulty=1;
+let spikes=[], enemies=[], stars=[];
+let spikeTimer=0, enemyTimer=0;
+
+// Load high score
+let highScore = localStorage.getItem('ninjaHighScore') || 0;
+highScoreDisplay.textContent = "High: "+highScore;
+
+// Start game
+playBtn.addEventListener('click', () => {
+  menu.style.display='none';
+  game.style.display='block';
+});
+
+// Controls helper
+function setControl(button, startCb, endCb=null){
+  button.addEventListener('touchstart', (e)=>{ e.preventDefault(); startCb(); });
+  button.addEventListener('mousedown', startCb);
+  if(endCb){
+    button.addEventListener('touchend', endCb);
+    button.addEventListener('mouseup', endCb);
+    button.addEventListener('mouseleave', endCb);
+  }
+}
+
+// Movement
+setControl(document.getElementById('jump'), ()=>{ 
+  if(!jumping){ jumping=true; velocity=-14;} // stronger jump
+});
+setControl(document.getElementById('forward'), ()=>{ speedX=5; }, ()=>{ speedX=0; });
+setControl(document.getElementById('backward'), ()=>{ speedX=-5; }, ()=>{ speedX=0; });
+
+// Ability
+setControl(document.getElementById('ability'), ()=>{
+  invincible=true; ninja.style.background='yellow';
+  setTimeout(()=>{ invincible=false; ninja.style.background='black'; },3000);
+});
+
+// Ninja star attack
+setControl(document.getElementById('ninjaStar'), ()=>{
+  const star=document.createElement('div');
+  star.style.position='absolute';
+  star.style.width='20px'; star.style.height='20px';
+  star.style.background='gold'; star.style.borderRadius='50%';
+  star.style.left = ninjaX + 50 + 'px';
+  star.style.bottom = 50 + ninjaY + 20 + 'px';
+  game.appendChild(star); stars.push(star);
+});
+
+// Obstacles
+function createSpike(){ const s=document.createElement('div'); s.className='spike'; s.style.right='0px'; game.appendChild(s); return s;}
+function createEnemy(){ const e=document.createElement('div'); e.className='enemy'; e.style.right='0px'; game.appendChild(e); return e;}
+
+function gameLoop(){
+  // Background scroll
+  background.style.left=((parseInt(background.style.left||'0')-2*difficulty)%game.offsetWidth)+'px';
+
+  // Ninja physics
+  velocity +=0.5; ninjaY+=velocity;
+  if(ninjaY>0){ ninjaY=0; jumping=false; velocity=0; }
+  ninjaX+=speedX; if(ninjaX<0) ninjaX=0; if(ninjaX>game.offsetWidth-50) ninjaX=game.offsetWidth-50;
+  ninja.style.left=ninjaX+'px'; ninja.style.bottom=50+ninjaY+'px';
+
+  // Spawn obstacles
+  spikeTimer++; enemyTimer++;
+  if(spikeTimer>100/difficulty){ spikes.push(createSpike()); spikeTimer=0; }
+  if(enemyTimer>200/difficulty){ enemies.push(createEnemy()); enemyTimer=0; }
+
+  // Move spikes
+  for(let i=spikes.length-1;i>=0;i--){
+    let s=spikes[i], r=parseInt(s.style.right); s.style.right=(r+5*difficulty)+'px';
+    let sLeft=game.offsetWidth-(r+30), sRight=game.offsetWidth-r;
+    if(!invincible && sRight>ninjaX && sLeft<ninjaX+50 && 50+ninjaY<80){ gameOver(); }
+    if(r>game.offsetWidth){ spikes.splice(i,1); s.remove(); points++; scoreDisplay.textContent='Points:'+points; difficulty+=0.001;}
+  }
+
+  // Move enemies
+  for(let i=enemies.length-1;i>=0;i--){
+    let e=enemies[i], r=parseInt(e.style.right); e.style.right=(r+3*difficulty)+'px';
+    let eLeft=game.offsetWidth-(r+40), eRight=game.offsetWidth-r;
+    if(!invincible && eRight>ninjaX && eLeft<ninjaX+50 && 50+ninjaY<90){ gameOver(); }
+    for(let j=stars.length-1;j>=0;j--){
+      let star=stars[j], sLeft=parseInt(star.style.left), sBottom=parseInt(star.style.bottom);
+      if(sLeft+20>eLeft && sLeft<eRight && sBottom<90 && sBottom+20>50){ 
+        e.remove(); enemies.splice(i,1); star.remove(); stars.splice(j,1); points+=2; scoreDisplay.textContent='Points:'+points; break;
+      }
+    }
+    if(r>game.offsetWidth){ enemies.splice(i,1); e.remove(); points++; scoreDisplay.textContent='Points:'+points; }
+  }
+
+  // Move stars
+  for(let i=stars.length-1;i>=0;i--){
+    stars[i].style.left=parseInt(stars[i].style.left)+10+'px';
+    if(parseInt(stars[i].style.left)>game.offsetWidth){ stars[i].remove(); stars.splice(i,1);}
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Game over function with high score
+function gameOver(){
+  if(points>highScore){
+    highScore=points;
+    localStorage.setItem('ninjaHighScore', highScore);
+    highScoreDisplay.textContent = "High: "+highScore;
+  }
+  alert('Game Over! Points: '+points);
+  window.location.reload();
+}
+
+gameLoop();
+</script>
+</body>
+</html>
